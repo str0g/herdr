@@ -2012,16 +2012,49 @@ impl HeadlessServer {
                 }
                 true
             }
-            AppEvent::ClipboardQuery { pane_id: _ } => {
+            AppEvent::ClipboardQuery { pane_id } => {
                 // Clipboard queries are client-local responses. Read the system clipboard,
-                // base64-encode it, and send to the foreground client so it can write back
-                // an OSC 52 query response (`ESC ] 52 ; a ; c ; <base64> BEL`) to the child.
-                let data = crate::platform::read_clipboard_text()
-                    .map(|text| base64::engine::general_purpose::STANDARD.encode(text.as_bytes()))
-                    // Empty string encodes to "" which decodes to Some(vec![]) — an empty-answer
-                    // OSC 52 sequence, telling the child the clipboard was empty (not broken).
+                // base64-encode it, resolve which terminal the query came from, and write an
+                // OSC 52 query response (`ESC ] 52 ; a ; c ; <base64> BEL`) directly into
+                // the originating pane's PTY via libghostty-vt so the child process receives it.
+                // Also send to the foreground client for TUI display when available.
+                let text = crate::platform::read_clipboard_text();
+                let sequence: String = match &text {
+                    Some(clip) => crate::selection::osc52_query_response_sequence(clip.as_bytes()),
+                    None => "\x1b]52;a;c;\x07".to_owned(),
+                };
+
+                // Resolve the target terminal from workspace state using the pane_id.
+                let target_terminal_id = self.app.state.workspaces.iter().find_map(|ws| {
+                    ws.pane_state(*pane_id)
+                        .map(|p| p.attached_terminal_id.to_string())
+                });
+
+                // Write directly into the target PTY — this is the reliable path.
+                if let Some(terminal_id) = &target_terminal_id {
+                    if let Some(runtime) = self.runtime_for_terminal_id_string(terminal_id) {
+                        if let Err(err) = runtime.try_send_bytes(Bytes::from(sequence.clone())) {
+                            warn!(terminal_id, err = %err, "clipboard query PTY write failed");
+                        }
+                    } else {
+                        warn!(terminal_id, "no runtime for clipboard query target");
+                    }
+                } else {
+                    warn!(
+                        pane_id = pane_id.raw(),
+                        "no terminal attached to pane for clipboard query"
+                    );
+                }
+
+                // Send the base64 data to foreground client so TUI can display feedback.
+                let data = text
+                    .map(|t| base64::engine::general_purpose::STANDARD.encode(t.as_bytes()))
                     .unwrap_or_else(|| base64::engine::general_purpose::STANDARD.encode(""));
-                self.send_to_foreground_client(ServerMessage::ClipboardQuery { data });
+                self.send_to_foreground_client(ServerMessage::ClipboardQuery {
+                    data,
+                    target_terminal_id: target_terminal_id.unwrap_or_default(),
+                });
+
                 true
             }
             AppEvent::PrefixInputSource { active } => {
@@ -2833,6 +2866,53 @@ impl HeadlessServer {
                         true
                     }
                 }
+            }
+            ServerEvent::ClientClipboardQueryResponse {
+                client_id,
+                data,
+                target_terminal_id,
+            } => {
+                info!(client_id, "clipboard query response received from client");
+
+                // Use the terminal ID from the wire message first (most specific to the
+                // originating pane). For tmux-attached clients, use their attached terminal
+                // as a fallback. Finally, fall back to any available workspace terminal.
+                let terminal_id = if !target_terminal_id.is_empty() {
+                    Some(target_terminal_id.clone())
+                } else if let Some(client) = self.clients.get(&client_id) {
+                    match &client.mode {
+                        crate::server::clients::ClientConnectionMode::TerminalAttach {
+                            terminal_id,
+                        } => Some(terminal_id.clone()),
+                        _ => None,
+                    }
+                } else {
+                    None
+                }
+                .or_else(|| {
+                    self.app.state.workspaces.first().and_then(|ws| {
+                        ws.tabs
+                            .first()
+                            .and_then(|tab| tab.panes.keys().next())
+                            .and_then(|pane_id| {
+                                ws.pane_state(*pane_id)
+                                    .map(|p| p.attached_terminal_id.to_string())
+                            })
+                    })
+                });
+
+                if let Some(terminal_id) = terminal_id {
+                    if let Some(runtime) = self.runtime_for_terminal_id_string(&terminal_id) {
+                        let sequence = format!("\x1b]52;a;c;{}\x07", data);
+                        if let Err(err) = runtime.try_send_bytes(Bytes::from(sequence)) {
+                            warn!(client_id, err = %err, "clipboard query response write to PTY failed");
+                        }
+                    }
+                } else {
+                    warn!(client_id, "no target terminal for clipboard query response");
+                }
+
+                true
             }
             ServerEvent::ClientResize {
                 client_id,

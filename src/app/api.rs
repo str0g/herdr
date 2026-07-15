@@ -1,3 +1,5 @@
+#[cfg(not(test))]
+use std::io::{self, Write};
 use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 
@@ -80,6 +82,55 @@ impl App {
                 self.prefix_input_source.switch_to_ascii();
             } else {
                 self.prefix_input_source.restore();
+            }
+            return;
+        }
+
+        if let AppEvent::ClipboardQuery { pane_id } = ev {
+            // Monolithic path responds directly to the clipboard query. Read the system
+            // clipboard and write an OSC 52 query response (ESC ] 52 ; a ; c ; <base64> BEL)
+            // directly into the originating pane's PTY so the child process receives it,
+            // regardless of tmux/terminal passthrough behavior.
+            let text = crate::platform::read_clipboard_text();
+            let _sequence: String = match &text {
+                Some(clip) => crate::selection::osc52_query_response_sequence(clip.as_bytes()),
+                None => "\x1b]52;a;c;\x07".to_owned(),
+            };
+
+            // Resolve the target terminal from workspace state using the pane_id,
+            // then write directly into that PTY via libghostty-vt. This avoids relying
+            // on stdout → terminal emulator → tmux passthrough which is unreliable.
+            if let Some(pane) = self
+                .state
+                .workspaces
+                .iter()
+                .find_map(|ws| ws.pane_state(pane_id))
+            {
+                let terminal_id = &pane.attached_terminal_id;
+                if let Some(runtime) = self.terminal_runtimes.get(terminal_id) {
+                    #[cfg(not(test))]
+                    {
+                        use bytes::Bytes;
+                        let _ = runtime.try_send_bytes(Bytes::from(_sequence.clone()));
+                    }
+                    #[cfg(test)]
+                    let _ = (pane, runtime);
+                } else {
+                    tracing::warn!(terminal_id = %terminal_id, "no runtime for clipboard query target");
+                }
+            } else {
+                tracing::warn!(
+                    pane_id = pane_id.raw(),
+                    "no terminal attached to pane for clipboard query"
+                );
+            }
+
+            // Also write to stdout as a fallback for direct-terminal setups where
+            // the child may read from stdout (rare, but harmless).
+            #[cfg(not(test))]
+            {
+                let _ = io::stdout().write_all(_sequence.as_bytes());
+                let _ = io::stdout().flush();
             }
             return;
         }

@@ -346,6 +346,13 @@ pub(crate) enum ServerEvent {
     ClientWriterDrained { client_id: u64 },
     /// Ctrl+C or external shutdown signal received.
     QuitSignal,
+    /// A client responded to a clipboard query with the clipboard data (base64).
+    /// The server should write an OSC 52 answer sequence into the originating pane's PTY.
+    ClientClipboardQueryResponse {
+        client_id: u64,
+        data: String,
+        target_terminal_id: String,
+    },
 }
 
 /// Clamp client-reported terminal dimensions to a minimum viable size.
@@ -748,6 +755,14 @@ fn client_read_loop(
                 // Duplicate Hello — ignore.
                 continue;
             }
+            ClientMessage::ClipboardQueryResponse {
+                data,
+                target_terminal_id,
+            } => ServerEvent::ClientClipboardQueryResponse {
+                client_id,
+                data,
+                target_terminal_id,
+            },
         };
 
         if server_event_tx.blocking_send(event).is_err() {

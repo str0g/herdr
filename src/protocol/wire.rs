@@ -395,6 +395,17 @@ pub enum ClientMessage {
         /// Replace an existing writable controller for this terminal.
         takeover: bool,
     },
+
+    /// A clipboard query response from the client back to the server.
+    /// The client received `ServerMessage::ClipboardQuery` with base64 data,
+    /// and echoes it back so the server can write it into the PTY for the child.
+    ClipboardQueryResponse {
+        /// Base64-encoded clipboard data (already encoded by the server).
+        data: String,
+        /// Terminal ID of the pane that initiated the original clipboard query.
+        /// Used to route the answer back to the correct terminal runtime.
+        target_terminal_id: String,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -648,6 +659,9 @@ pub enum ServerMessage {
     ClipboardQuery {
         /// Base64-encoded clipboard data, or empty string if unavailable.
         data: String,
+        /// Terminal ID where the original query originated. Used to route the
+        /// response back to the correct PTY so the child process receives it.
+        target_terminal_id: String,
     },
 
     /// Set the foreground client's outer terminal window title.

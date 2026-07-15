@@ -1556,12 +1556,27 @@ async fn run_client_loop(
                     forward_clipboard(&data);
                     let _ = io::stdout().flush();
                 }
-                ServerMessage::ClipboardQuery { data } => {
+                ServerMessage::ClipboardQuery {
+                    data,
+                    target_terminal_id,
+                } => {
                     // Child sent an OSC 52 clipboard query; decode and write back
                     // an OSC 52 query response (`ESC ] 52 ; a ; c ; <base64> BEL`).
+                    // Also send the data back to the server via socket for headless mode,
+                    // so it can write into the originating pane's PTY directly.
                     if let Some(bytes) = decode_clipboard_payload(&data) {
                         let sequence = crate::selection::osc52_query_response_sequence(&bytes);
                         let _ = io::stdout().write_all(sequence.as_bytes());
+
+                        // For headless+client mode, also echo back through the socket
+                        // so the server can deliver it to the child's PTY.
+                        let msg = ClientMessage::ClipboardQueryResponse {
+                            data,
+                            target_terminal_id: target_terminal_id.clone(),
+                        };
+                        if let Err(e) = write_to_server(&mut write_stream, &msg) {
+                            warn!(err = %e, "clipboard query response socket send failed");
+                        }
                     }
                     let _ = io::stdout().flush();
                 }
