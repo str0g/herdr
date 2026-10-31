@@ -323,6 +323,7 @@ pub struct Config {
     pub advanced: AdvancedConfig,
     pub experimental: ExperimentalConfig,
     pub remote: RemoteConfig,
+    pub clipboard: ClipboardConfig,
 }
 
 #[derive(Debug)]
@@ -1330,6 +1331,35 @@ impl Default for AdvancedConfig {
     }
 }
 
+/// Which clipboard programs running inside panes share through OSC 52.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ClipboardModeConfig {
+    /// The clipboard of the machine you are attached to. Pane copies are
+    /// forwarded to the attached client, and clipboard queries are answered
+    /// from the newest copy Herdr already forwarded there.
+    #[default]
+    Local,
+    /// The clipboard of the machine running the Herdr server. Pane copies are
+    /// written to that clipboard and clipboard queries read it back.
+    Remote,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(default)]
+pub struct ClipboardConfig {
+    /// Clipboard that pane programs share. Default: "local".
+    pub mode: ClipboardModeConfig,
+}
+
+impl Default for ClipboardConfig {
+    fn default() -> Self {
+        Self {
+            mode: ClipboardModeConfig::Local,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2093,6 +2123,20 @@ switch_ascii_input_source_in_prefix = true
         assert!(config.kitty_graphics_enabled());
         assert!(config.experimental.pane_history);
         assert!(config.experimental.switch_ascii_input_source_in_prefix);
+    }
+
+    #[test]
+    fn clipboard_defaults_to_local_clipboard_and_parses() {
+        assert_eq!(Config::default().clipboard.mode, ClipboardModeConfig::Local);
+
+        let config: Config = toml::from_str(
+            r#"
+[clipboard]
+mode = "remote"
+"#,
+        )
+        .unwrap();
+        assert_eq!(config.clipboard.mode, ClipboardModeConfig::Remote);
     }
 
     #[test]

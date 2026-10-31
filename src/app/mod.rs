@@ -554,6 +554,7 @@ impl App {
             shell_mode: config.terminal.shell_mode,
             new_terminal_cwd: config.terminal.new_cwd.clone(),
             pane_scrollback_limit_bytes: config.advanced.scrollback_limit_bytes,
+            clipboard_mode: config.clipboard.mode,
             sound: config.ui.sound.clone(),
             toast_config: config.ui.toast.clone(),
             keybinds: config.keybinds(),
@@ -581,6 +582,10 @@ impl App {
         };
 
         state.terminals = restored_terminals;
+
+        // Pane clipboard read callbacks run inside the pane runtime, so the
+        // configured mode is also published to the clipboard slot they consult.
+        crate::pane::set_pane_clipboard_mode(state.clipboard_mode);
 
         // Background auto-update is disabled for non-persistent test apps
         // and in debug/test builds so local development never mutates the
@@ -975,6 +980,11 @@ impl App {
 
         if !invalid_section("advanced") {
             self.state.pane_scrollback_limit_bytes = config.advanced.scrollback_limit_bytes;
+        }
+
+        if !invalid_section("clipboard") {
+            self.state.clipboard_mode = config.clipboard.mode;
+            crate::pane::set_pane_clipboard_mode(config.clipboard.mode);
         }
 
         if !invalid_section("update") {

@@ -1469,6 +1469,22 @@
       ]
     },
     {
+      "id": "clipboard",
+      "title": "Clipboard",
+      "keys": [
+        {
+          "key": "clipboard.mode",
+          "type": "enum",
+          "default": "\"local\"",
+          "description": "Which clipboard programs inside panes share through OSC 52 copies and queries. `local` reaches the clipboard of the attached client; `remote` uses the clipboard of the machine running the Herdr server.",
+          "values": [
+            "local",
+            "remote"
+          ]
+        }
+      ]
+    },
+    {
       "id": "advanced",
       "title": "Advanced",
       "keys": [

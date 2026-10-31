@@ -851,6 +851,8 @@ pub struct AppState {
     pub shell_mode: crate::config::ShellModeConfig,
     pub new_terminal_cwd: NewTerminalCwdConfig,
     pub pane_scrollback_limit_bytes: usize,
+    /// Which clipboard pane programs share through OSC 52 (`[clipboard] mode`).
+    pub clipboard_mode: crate::config::ClipboardModeConfig,
     pub sound: SoundConfig,
     pub toast_config: ToastConfig,
     pub keybinds: Keybinds,
@@ -1088,6 +1090,7 @@ impl AppState {
             shell_mode: crate::config::ShellModeConfig::Auto,
             new_terminal_cwd: NewTerminalCwdConfig::Follow,
             pane_scrollback_limit_bytes: crate::config::DEFAULT_SCROLLBACK_LIMIT_BYTES,
+            clipboard_mode: crate::config::ClipboardModeConfig::Local,
             sound: SoundConfig {
                 enabled: false,
                 ..SoundConfig::default()

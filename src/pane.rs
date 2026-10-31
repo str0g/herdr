@@ -26,6 +26,7 @@ use crate::render_signal::RenderSignal;
 
 mod agent_detection;
 mod background_agent;
+mod clipboard_cache;
 mod cursor;
 mod input;
 mod kitty_keyboard;
@@ -55,6 +56,12 @@ pub use self::{
     state::PaneState,
     terminal::{ScrollMetrics, TerminalCursorState},
 };
+
+/// Applies `[clipboard] mode` to the clipboard shared by the pane terminals of this
+/// process. Read callbacks installed on existing panes pick it up immediately.
+pub(crate) fn set_pane_clipboard_mode(mode: crate::config::ClipboardModeConfig) {
+    clipboard_cache::ClipboardCache::shared().set_mode(mode);
+}
 
 pub(crate) struct TerminalDirtyPatchSnapshot {
     pub patch: TerminalDirtyPatchOutcome,

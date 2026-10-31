@@ -1,5 +1,43 @@
 use super::*;
 
+/// Writes pane clipboard text to the clipboard of the machine running the server,
+/// which is what `[clipboard] mode = "remote"` shares with panes. The clipboard
+/// helper is bounded by its own timeout, so it runs off the event loop.
+///
+/// Test builds record the text instead of running a clipboard tool so tests never
+/// touch the developer's real clipboard.
+fn write_host_clipboard_text(content: Vec<u8>) {
+    #[cfg(test)]
+    {
+        CAPTURED_HOST_WRITS.with(|writes| writes.borrow_mut().push(content));
+    }
+    #[cfg(not(test))]
+    if let Err((content, err)) =
+        crate::thread_spawn::spawn_named_with("herdr-host-clipboard-write", content, |content| {
+            if !crate::platform::write_clipboard(&content) {
+                warn!(
+                    bytes = content.len(),
+                    "failed to write pane clipboard to the host clipboard"
+                );
+            }
+        })
+    {
+        warn!(bytes = content.len(), err = %err, "failed to spawn host clipboard write");
+    }
+}
+
+#[cfg(test)]
+thread_local! {
+    static CAPTURED_HOST_WRITS: std::cell::RefCell<Vec<Vec<u8>>> =
+        const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// Host clipboard writes recorded on this thread by `write_host_clipboard_text`.
+#[cfg(test)]
+pub(super) fn captured_host_clipboard_writes() -> Vec<Vec<u8>> {
+    CAPTURED_HOST_WRITS.with(|writes| writes.borrow().clone())
+}
+
 impl HeadlessServer {
     fn pane_effective_state(&self, pane_id: crate::layout::PaneId) -> crate::detect::AgentState {
         self.app
@@ -332,10 +370,18 @@ impl HeadlessServer {
                 false
             }
             AppEvent::ClipboardWrite { content } => {
-                // Clipboard writes are client-local side effects. Forward them only to
-                // the foreground client instead of broadcasting to every attached client.
-                let data = base64::engine::general_purpose::STANDARD.encode(content.as_slice());
-                self.send_to_foreground_client(ServerMessage::Clipboard { data });
+                if self.app.state.clipboard_mode == crate::config::ClipboardModeConfig::Remote {
+                    // `[clipboard] mode = "remote"`: panes share this machine's clipboard,
+                    // so the copy never reaches the attached client. The helper is
+                    // bounded by its own timeout and runs off the event loop so a hung
+                    // clipboard tool cannot stall the server.
+                    write_host_clipboard_text(content.clone());
+                } else {
+                    // Clipboard writes are client-local side effects. Forward them only to
+                    // the foreground client instead of broadcasting to every attached client.
+                    let data = base64::engine::general_purpose::STANDARD.encode(content.as_slice());
+                    self.send_to_foreground_client(ServerMessage::Clipboard { data });
+                }
                 false
             }
             AppEvent::StateChanged { pane_id, agent, .. } => {

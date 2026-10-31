@@ -7229,6 +7229,42 @@ fn clipboard_write_targets_foreground_client_only() {
 }
 
 #[test]
+fn clipboard_write_in_remote_mode_stays_on_the_herdr_host() {
+    let mut server = test_headless_server();
+    let (foreground_tx, foreground_control_rx, _foreground_rx) = test_client_writer();
+    server.clients.insert(
+        1,
+        ClientConnection::new(
+            (80, 24),
+            crate::kitty_graphics::HostCellSize::default(),
+            1,
+            RenderEncoding::SemanticFrame,
+            Some(foreground_tx),
+        ),
+    );
+    server.foreground_client_id = Some(1);
+    server.sync_foreground_client_state();
+    server.app.state.clipboard_mode = crate::config::ClipboardModeConfig::Remote;
+
+    let changed = server.handle_internal_event_with_forwarding(AppEvent::ClipboardWrite {
+        content: b"host only".to_vec(),
+    });
+
+    assert!(!changed);
+    assert_eq!(
+        super::notifications::captured_host_clipboard_writes(),
+        vec![b"host only".to_vec()],
+        "the copy goes to the Herdr host clipboard"
+    );
+    assert!(
+        foreground_control_rx
+            .recv_timeout(Duration::from_millis(50))
+            .is_err(),
+        "`clipboard.mode = \"remote\"` writes the host clipboard instead of forwarding"
+    );
+}
+
+#[test]
 fn clipboard_write_without_foreground_client_does_not_change_visual_state() {
     let mut server = test_headless_server();
     server.foreground_client_id = None;

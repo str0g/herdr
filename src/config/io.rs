@@ -6,6 +6,7 @@ use super::{model::LoadedConfig, Config, CONFIG_PATH_ENV_VAR};
 
 const KNOWN_TOP_LEVEL_CONFIG_KEYS: &[&str] = &[
     "advanced",
+    "clipboard",
     "experimental",
     "keys",
     "onboarding",
@@ -374,6 +375,14 @@ fn load_live_config_from_str(content: &str) -> Result<LoadedConfig, Vec<String>>
         &mut diagnostics,
         &mut invalid_sections,
         |section| config.remote = section,
+    );
+    load_live_section(
+        table,
+        "clipboard",
+        "clipboard config",
+        &mut diagnostics,
+        &mut invalid_sections,
+        |section| config.clipboard = section,
     );
 
     diagnostics.extend(config.theme.diagnostics());
@@ -896,6 +905,24 @@ resume_agents_on_restore = true
         .unwrap();
 
         assert!(loaded.config.session.resume_agents_on_restore);
+        assert!(loaded.diagnostics.is_empty());
+        assert!(loaded.invalid_sections.is_empty());
+    }
+
+    #[test]
+    fn load_live_config_parses_clipboard_section() {
+        let loaded = load_live_config_from_str(
+            r#"
+[clipboard]
+mode = "remote"
+"#,
+        )
+        .unwrap();
+
+        assert_eq!(
+            loaded.config.clipboard.mode,
+            super::super::ClipboardModeConfig::Remote
+        );
         assert!(loaded.diagnostics.is_empty());
         assert!(loaded.invalid_sections.is_empty());
     }

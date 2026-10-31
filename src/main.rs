@@ -444,6 +444,19 @@ pane_history = false
 # Maximum scrollback buffer size in bytes retained per pane terminal.
 # Matches Ghostty's default scrollback-limit behavior.
 # scrollback_limit_bytes = 10000000
+
+[clipboard]
+# Which clipboard programs inside panes share through OSC 52 copies and queries.
+# local  = the clipboard of the machine you are attached to. Pane copies reach the
+#          attached client (its native clipboard tool, or OSC 52 through the outer
+#          terminal over SSH), and a pane that reads the clipboard back receives the
+#          newest copy Herdr already forwarded.
+# remote = the clipboard of the machine running the Herdr server. Pane copies are
+#          written to it with that machine's clipboard tool, and a pane that reads
+#          the clipboard back receives what is on it now. Use this when panes and
+#          host desktop apps should share one clipboard; on a headless server there
+#          is no clipboard tool, so pane copies are dropped.
+# mode = "local"
 "##;
 
 // Bundled at build time so the printed skill always matches this binary's release.
